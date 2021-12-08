@@ -1,9 +1,12 @@
 ​<br />
-<a name="iW3Mh"></a>
-### Kubelet 启动流程
-kubernetes 版本：v1.22<br />本文重点分析启动流程和涉及的模块。会省去无关注释和代码，关注者可以从代码链接自行查阅。
-<a name="Gg9Vq"></a>
-### main
+<a name="BEhLZ"></a>
+## Kubelet 启动流程
+kubernetes 版本：v1.23<br />本文重点分析启动流程和涉及的模块。会省去无关注释和代码，关注者可以从代码链接自行查阅。
+<a name="J0Cfm"></a>
+## Overview
+<a name="yboE7"></a>
+![Overview](../image/kubelet-overview.jpg)
+## main
 ```go
 func main() {
 	command := app.NewKubeletCommand()
@@ -16,8 +19,8 @@ func main() {
 	os.Exit(code)
 }
 ```
-<a name="YTzYX"></a>
-### NewKubeletCommand
+<a name="gCbx3"></a>
+## NewKubeletCommand
 首先从 kubelet 的 main 函数开始，其中调用的 NewKubeletCommand 方法主要负责获取配置文件中的参数，校验参数以及为参数设置默认值。主要逻辑为：
 
 1. kubelet 配置解析
@@ -169,8 +172,8 @@ func NewKubeletCommand() *cobra.Command {
     return cmd
 }
 ```
-<a name="nRzWY"></a>
-### Run
+<a name="D3DkG"></a>
+## Run
 该方法中仅仅调用 run 方法执行后面的启动逻辑。<br />[k8s.io/kubernetes/cmd/kubelet/app/server.go:445](https://sourcegraph.com/github.com/kubernetes/kubernetes@2ac6a4121f5b2a94acc88d62c07d8ed1cd34ed63/-/blob/cmd/kubelet/app/server.go?L444)
 ```go
 func Run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate featuregate.FeatureGate) error {
@@ -1045,9 +1048,11 @@ func startKubelet(k kubelet.Bootstrap, podCfg *config.PodConfig, kubeCfg *kubele
 	}
 }
 ```
-至此，kubelet 对象以及其依赖模块在上面的几个方法中已经初始化完成了，除了单独启动了 gc 模块外其余的模块以及主逻辑最后都会在 Run 方法启动，Run 方法的主要逻辑在下文中会进行解释，此处总结一下 kubelet 启动逻辑中的调用关系如下所示：
+至此，kubelet 对象以及其依赖模块在上面的几个方法中已经初始化完成了，除了单独启动了 gc 模块外其余的模块以及主逻辑最后都会在 Run 方法启动，Run 方法的主要逻辑在下文中会进行解释，此处总结一下 kubelet 启动逻辑中的调用关系如下所示：<br />​<br />
+<a name="l0LeK"></a>
+### NewKubeletCommand 流程图
 ```go
-|--> NewMainKubelet
+																				  |--> NewMainKubelet
                                                                                   |
                                                       |--> createAndInitKubelet --|--> BirthCry
                                                       |                           |
@@ -1059,8 +1064,8 @@ NewKubeletCommand --> Run --> run --|--> http.ListenAndServe
                                     |
                                     |--> daemon.SdNotify
 ```
-<a name="n59r9"></a>
-### k.Run
+<a name="KMj0i"></a>
+## k.Run
 Run 方法是启动 kubelet 的核心方法，在上文的 startKubelet 中调用<br />其中会启动 kubelet 的依赖模块以及主循环逻辑，该方法的主要逻辑为：
 
 1. 注册 logServer；
@@ -1309,8 +1314,8 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 }
 ```
 <a name="WZ3si"></a>
-### 小结
-在 Run 方法中可以看到，会直接调用 kl.syncNodeStatus和 kl.updateRuntimeUp，但在 kl.fastStatusUpdateOnce 中也调用了这两个方法，而在 kl.fastStatusUpdateOnce 中仅执行一次，在 Run 方法中会定期执行。在kl.fastStatusUpdateOnce 中调用的目的就是当 kubelet 首次启动时尽可能快的进行 runtime update 和 node status update，减少节点达到 ready 状态的时延。而在 kl.updateRuntimeUp 中调用的初始化 runtime 依赖模块的方法 kl.initializeRuntimeDependentModules 通过 sync.Once 调用仅仅会被执行一次。
+### k.Run 小结
+在 Run 方法中可以看到，会直接调用 kl.syncNodeStatus和 kl.updateRuntimeUp，但在 kl.fastStatusUpdateOnce 中也调用了这两个方法，而在 kl.fastStatusUpdateOnce 中仅执行一次，在 Run 方法中会定期执行。在kl.fastStatusUpdateOnce 中调用的目的就是当 kubelet 首次启动时尽可能快的进行 runtime update 和 node status update，减少节点达到 ready 状态的时延。而在 kl.updateRuntimeUp 中调用的初始化 runtime 依赖模块的方法 kl.initializeRuntimeDependentModules 通过 sync.Once 调用仅仅会被执行一次。<br />​<br />
 <a name="WRvJ0"></a>
 ### syncLoop
 syncLoop 是 kubelet 的主循环方法，它从不同的管道(file，http，apiserver)监听 pod 的变化，并把它们汇聚起来。当有新的变化发生时，它会调用对应的函数，保证 pod 处于期望的状态。<br />syncLoop 中首先定义了一个 syncTicker 和 housekeepingTicker，即使没有需要更新的 pod 配置，kubelet 也会定时去做同步和清理 pod 的工作。然后在 for 循环中一直调用 syncLoopIteration，如果在每次循环过程中出现错误时，kubelet 会记录到 runtimeState 中，遇到错误就等待 5 秒中继续循环。<br />[k8s.io/kubernetes/pkg/kubelet/kubelet.go:1976](https://sourcegraph.com/github.com/kubernetes/kubernetes@2ac6a41/-/blob/pkg/kubelet/kubelet.go?L1976:20)
@@ -1477,9 +1482,11 @@ func (kl *Kubelet) syncLoopIteration(......) bool {
 	return true
 }
 ```
-小结
+<a name="Vlj00"></a>
+## 总结
+本文主要介绍了 kubelet 的启动流程，可以看到 kubelet 启动流程中的环节非常多，kubelet 中也包含了非常多的模块，后续在分享 kubelet 源码的文章中会先以 Run 方法中启动的所有模块为主，各个击破。
 ```go
-|--> kl.cloudResourceSyncManager.Run
+	  |--> kl.cloudResourceSyncManager.Run
       |
       |                            |--> kl.setupDataDirs
       |                            |--> kl.imageManager.Start
@@ -1512,6 +1519,3 @@ Run --|--> kl.initializeModules ---|--> kl.serverCertificateManager.Start
       |
       |--> kl.syncLoop --> kl.syncLoopIteration
 ```
-<a name="GNiXy"></a>
-### 总结
-本文主要介绍了 kubelet 的启动流程，可以看到 kubelet 启动流程中的环节非常多，kubelet 中也包含了非常多的模块，后续在分享 kubelet 源码的文章中会先以 Run 方法中启动的所有模块为主，各个击破。
